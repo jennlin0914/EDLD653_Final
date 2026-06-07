@@ -1,11 +1,690 @@
 ---
-title: "FinalProject"
+title: "Final"
+author: "Zhen Lin"
+date: "06/03/2026"
+output: 
+  html_document:
+  code_folding: hide
+embed-resources: true
+execute: 
+  cache: true
+  warning: false
 ---
 
-## Quarto
+### (1) API calls to chess.com (10 points)
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+Chess.com is an internet chess server. Live online chess can be played against other users in daily, rapid, blitz or bullet time controls, with a number of chess variants also available. It is one of the largest chess platforms in the world. In this part of the assignment, we will interact with their API to scrap some data. Below is some information to start with.
+
+You can get a list of the usernames for 10,000 players from the USA using the R code in the chunk below. Due to performance reasons, it doesn’t return the list of all players. Note that the returned list of usernames may change from day to day so you may not get the exact same list as others. (More information about chess.com API: https://www.chess.com/news/view/published-data-api)
+
+In the code chunk below, player_list is a character vector of length 10,000 where each element is a username.
+
+You can get more information for each user from their username. For instance, below is how you can get more information and stats about username “--untouchable--”.
+```{r}
+library(tidyverse)
+library(httr)
+library(jsonlite)
+library(glue)
+library(lubridate)
+library(purrr)
+library(dplyr)
+
+response <- GET("https://api.chess.com/pub/country/US/players")
+player_list <- fromJSON(rawToChar(response$content))$players
+players_500 <- player_list[1:500]
+
+info <- GET('https://api.chess.com/pub/player/--untouchable--')
+fromJSON(rawToChar(info$content))
+
+stats <- GET('https://api.chess.com/pub/player/--untouchable--/stats')
+fromJSON(rawToChar(stats$content))
+```
+
+Write R code to create a data frame for the first 500 players. Each row in this data frame must represent a user with the following columns for all users.
 
 ```{r}
-1 + 1
+
+pluck_or_na <- function(x, path) {
+  value <- pluck(x, !!!path, .default = NA)
+  if (is.null(value) || length(value) == 0) {
+    return(NA)
+  }
+  value
+}
+
+get_player_data <- function(username) {
+
+  info_response <- GET(glue("https://api.chess.com/pub/player/{username}"))
+  stats_response <- GET(glue("https://api.chess.com/pub/player/{username}/stats"))
+
+  info <- fromJSON(rawToChar(info_response$content))
+  stats <- fromJSON(rawToChar(stats_response$content))
+
+  tibble(
+    username = username,
+    name = pluck_or_na(info, list("name")),
+    number_of_followers = pluck_or_na(info, list("followers")),
+    location = pluck_or_na(info, list("location")),
+    last_online = as.POSIXct(
+      pluck_or_na(info, list("last_online")),
+      origin = "1970-01-01",
+      tz = "UTC"
+    ),
+    rapid_last_rating = pluck_or_na(stats, list("chess_rapid", "last", "rating")),
+    rapid_best_rating = pluck_or_na(stats, list("chess_rapid", "best", "rating")),
+    rapid_record_win = pluck_or_na(stats, list("chess_rapid", "record", "win")),
+    rapid_record_loss = pluck_or_na(stats, list("chess_rapid", "record", "loss")),
+    rapid_record_draw = pluck_or_na(stats, list("chess_rapid", "record", "draw"))
+  )
+}
+
+chess_players <- map_dfr(players_500, get_player_data)
+chess_players
+```
+
+### (2) Identify & Remove Duplicate Files (20 points)
+
+In this question, you’re tasked with automating a crucial task for your team in a real-world scenario. The team regularly pulls a series of datasets from a server and exports them to distinct daily folders. Each of these folders contains multiple subfolders, each housing several CSV files for analysis. Due to a system glitch, some files have been duplicated and scattered in these subfolders. As your team’s data scientist and R expert, your goal is to write an R script to identify and remove these duplicate files while keeping the original files intact. The entire folder structure houses 222 files, of which 207 are unique. Your script should also generate a table summarizing the files identified and deleted.
+
+#### Instructions
+
+Download the three named folders from the data/question_2 folder from the course repo: https://github.com/jnese/functional-programming_spring-2026/tree/main/data/question_2
+Copy the entire folder structure to a local directory on your computer. Ensure not to alter the folder structure or modify any files.
+Develop an R script capable of identifying and deleting the duplicated files while preserving the original copies. Your script should:
+Identify and delete the 15 duplicate files.
+Generate a two-column table of the 15 duplicate files. The first column should list the file paths of the original files retained, and the second should provide the file paths of the deleted duplicates.
+Upon successful execution, your script should leave a clean folder containing only the 207 unique files.
+You may need the following R programming skills to complete this task: if-else statements, for loops, and file & folder structures functions.
+
+```{r}
+library(tidyverse)
+library(fs)
+library(here)
+question_2_folder <- here("data","question_2")
+
+all_csv_files <- dir_ls(
+  question_2_folder,
+  recurse = TRUE,
+  type = "file",
+  glob = "*.csv"
+)
+
+length(all_csv_files)
+
+```
+
+```{r}
+#a function for comparing the files 
+compare_file <- function(file1, file2){
+  contents1<- readLines(file1, warn = FALSE)
+  contents2<- readLines(file2, warn = FALSE)
+  
+  if (identical(contents1, contents2)){
+    TRUE
+  } else {
+    FALSE
+  }
+}
+
+# Empty containers
+original_files <- character()
+duplicate_originals <- character()
+duplicate_files <- character()
+
+# Loop through every CSV file
+for (current_file in all_csv_files){
+ duplicate_found <- FALSE
+ 
+# Compare current file with each original file already kept
+  for(original_file in original_files){
+    if (compare_file(current_file, original_file)){
+      duplicate_found <- TRUE
+      
+      duplicate_originals <- c(duplicate_originals, original_file)
+      duplicate_files <- c(duplicate_files, current_file)
+      break
+    }
+  }
+   # If no duplicate was found, keep this file as an original
+    if (!duplicate_found) {
+      original_files <- c(original_files, current_file)
+    }
+}
+
+duplicate_table <- tibble(
+  original_file = duplicate_originals,
+  deleted_duplicate = duplicate_files
+)
+duplicate_table
+nrow(duplicate_table)
+
+```
+
+### (3) Multiple Models (10 points)
+In this question, you are tasked with estimating and reporting the slope reliability for reading and math measures across three grades. The reliability of the slope is part of a “technical adequacy” report that is required by an external agency for these measures. You will be applying one of many different approaches to this process. Once you complete this, you will have replicated the work of researchers and test developers across the country!
+
+To begin, download the benchmarks.csv file from the course repo and read in the dataset. These data are simulated, but represent individual student scores in reading and math across seasonal benchmark screenings (administered in the fall, winter, and spring) for students in Grades 3 through 5. The variables are as follows:
+
+sid: student identifier
+grade: student grade
+sped: special education status of the student
+ethnicity: coded race/ethnicity of the student
+frl: free or reduced price lunch eligibility for the student
+ell: English language learner status for the student
+season: season the assessment was administered
+reading: student’s reading score at the given season
+math: student’s mathematics score at the given season
+This is your process.
+
+First, recode the season column to a new column named wave so that “fall” has a value of 0, “winter” has a value of 1 and “spring” has a value of 2.
+
+Then you are going to apply a linear mixed effect model (LME) framework to estimate the reliability of the slope separately by grade (3 through 5), and subject (math and reading).
+
+Do not use the same code twice. If you find yourself copying/pasting code, create a function, and use that function.
+
+Calculate the reliability of slope as the ratio of true score variance to observed total variance: 
+ 
+### Numerator
+
+To get the true score variance, you will fit the following mixed-effect growth model to each subject in each grade:
+
+lme4::lmer(score ~ 1 + wave + (1+wave|sid), REML = FALSE, data = grade-subject)
+Ignore all warning associated with the model fitting. We are not here concerned with nice-fitting models or things such as “convergence”.
+You will then need to extract the variance of the slope; that is, the variance of the random effect of wave. This will be your estimated true score variance and serve as the numerator for the slope reliability estimate.
+
+
+```{r}
+library(tidyverse)
+library(here)
+library(lme4)
+library(knitr)
+library(stats)
+
+benchmarks <- read_csv(here("data","benchmarks.csv"))
+
+make_subject_data <- function(data, subject_name, score_variable) {
+  
+  score_variable <- rlang::ensym(score_variable)
+  
+  data |>
+    mutate(
+      wave = case_when(
+        season == "fall" ~ 0,
+        season == "winter" ~ 1,
+        season == "spring" ~ 2
+      ),
+      subject = subject_name,
+      score = !!score_variable
+    ) |>
+    select(
+      sid,
+      grade,
+      sped,
+      ethnicity,
+      frl,
+      ell,
+      season,
+      wave,
+      subject,
+      score
+    )
+}
+
+reading_data <- make_subject_data(
+  data = benchmarks,
+  subject_name = "reading",
+  score_variable = reading
+)
+
+math_data <- make_subject_data(
+  data = benchmarks,
+  subject_name = "math",
+  score_variable = math
+)
+
+benchmarks_all <- bind_rows(reading_data, math_data)
+
+benchmarks_all
+
+benchmarks_all |>
+  count(grade, subject, season, wave)
+
+
+#Write the function to fit the mixed effect model.
+#lme4::lmer(score ~ 1+ wave+ (1+wave|sid), REML = FALSE, data = grade-subject)
+
+fit_lmer_model <- function(data){
+  lmer(score ~ 1+ wave+ ( 1 + wave |sid),
+       REML = FALSE,
+       data = data)
+}
+
+extract_slope_variance <- function(model) {
+  variance_table <- as.data.frame(VarCorr(model))
+  
+  slope_variance <- variance_table |>
+    filter(
+      grp == "sid",
+      var1 == "wave",
+      is.na(var2)
+    ) |>
+    pull(vcov)
+  
+  slope_variance
+}
+
+
+```
+
+### Denominator
+
+To get the observed score variance, you will fit the following linear growth model individually for each student for each subject:
+
+lm(score ~ 1+ wave, data = student)
+You will then need to extract the fixed slope estimate for each student; that is, the coefficient of the wave variable.
+You will then calculate the variance of those slope estimates for each grade and subject. That will be your estimated observed score variance and serve as the denominator for the slope reliability estimate.
+To get the slope reliability estimate, divide the true score variance by the observed score variance.
+
+Report the the slope reliability estimate for each grade and subject in a nice table.
+
+```{r}
+library(stats)
+#lm(score ~ 1 + wave, data = student)
+
+# function to get each student’s slope
+get_student_slopes <- function(data) {
+  data |>
+    group_by(sid) |>
+    nest() |>
+    mutate(
+      model = map(data, ~ lm(score ~ 1 + wave, data = .x)),
+      slope = map_dbl(model, ~ coef(.x)[["wave"]])
+    ) |>
+    ungroup()
+}
+
+#calculate the variance of those slopes
+get_observed_slope_variance <- function(data) {
+  student_slopes <- get_student_slopes(data)
+  
+  var(student_slopes$slope, na.rm = TRUE)
+}
+
+estimate_slope_reliability <- function(data) {
+  model <- fit_lmer_model(data)
+  
+  true_slope_variance <- extract_slope_variance(model)
+  observed_slope_variance <- get_observed_slope_variance(data)
+  
+  tibble(
+    true_slope_variance = true_slope_variance,
+    observed_slope_variance = observed_slope_variance,
+    slope_reliability = true_slope_variance / observed_slope_variance
+  )
+}
+
+#reliability result
+reliability_results <- benchmarks_all |>
+  group_by(grade, subject) |>
+  nest() |>
+  mutate(
+    results = map(data, estimate_slope_reliability)
+  ) |>
+  unnest(results) |>
+  select(
+    grade,
+    subject,
+    true_slope_variance,
+    observed_slope_variance,
+    slope_reliability
+  )
+reliability_results |>
+  mutate(
+    true_slope_variance = round(true_slope_variance, 3),
+    observed_slope_variance = round(observed_slope_variance, 3),
+    slope_reliability = round(slope_reliability, 3)
+  ) |>
+  knitr::kable()
+```
+
+### (4) Slope Reliability Function (10 points)
+Write a function that takes an lmer() growth model object as its only argument and returns the slope reliability estimate that you just calculated. Make your function as general as possible; that is, it could work on other lmer() growth model objects.
+
+Apply your function to the models in the previous question to show that it works, and show the results in a simple table.
+
+```{r}
+q4_models <- benchmarks_all |>
+  group_by(grade, subject) |>
+  nest() |>
+  mutate(
+    model = map(data, fit_lmer_model)
+  )
+
+q4_models
+
+
+#slope reliability function model
+slope_reliability_function <- function(model) {
+  
+  model_data <- model.frame(model)
+  
+  response_var <- names(model_data)[1]
+  time_var <- "wave"
+  id_var <- "sid"
+  
+  variance_table <- as.data.frame(lme4::VarCorr(model))
+  
+  true_slope_variance <- variance_table |>
+    filter(
+      grp == id_var,
+      var1 == time_var,
+      is.na(var2)
+    ) |>
+    pull(vcov)
+  
+  student_slopes <- model_data |>
+    group_by(.data[[id_var]]) |>
+    nest() |>
+    mutate(
+      lm_model = map(
+        data,
+        ~ lm(
+          reformulate(time_var, response = response_var),
+          data = .x
+        )
+      ),
+      slope = map_dbl(lm_model, ~ coef(.x)[[time_var]])
+    ) |>
+    ungroup()
+  
+  observed_slope_variance <- var(student_slopes$slope, na.rm = TRUE)
+  
+  true_slope_variance / observed_slope_variance
+}
+
+
+#apply the function to the models from the previous quest
+q4_results <- q4_models |>
+  mutate(
+    slope_reliability = map_dbl(model, slope_reliability_function)
+  ) |>
+  select(
+    grade,
+    subject,
+    slope_reliability
+  )
+
+q4_results
+
+#beautiful table
+q4_results |>
+  mutate(
+    slope_reliability = round(slope_reliability, 3)
+  ) |>
+  knitr::kable()
+
+
+```
+
+
+#### (5) 95% Confidence Interval (CI) (20 points)
+Now you are going to get the confidence interval around those slope reliability estimates. To do this, you will write you own bootstrapping function. Bootstrapping here is a random sample with replacement from the original data set with the same number of students as the original data set. Use the base::sample() for this task, please do NOT use the dplyr::slice_sample() function.
+
+Your function will take five arguments: (1) a data frame (or tibble), (2) a grouping variable (in our case student id), (3) a time variable for the growth model, (4) the outcome variable for the growth model, and (5) the number of bootstrap samples.
+Important note. You will need to sample the same number of students, and you will need to retain the fall, winter, and spring scores for those students in order to fit the growth model. Make your function as general as possible (e.g., it could work on other data sets).
+
+You will use your bootstrapping function to create 100 bootstrap samples for each grade and subject (normally, we would use something like 1,000 bootstraps, but that would take too long). Then you will modify the slope reliability function you wrote in (4) above to create a new function that takes four arguments: (1) a data frame (or tibble), (2) a grouping variable (in our case student id), (3) a time variable for the growth model, and (4) the outcome variable for the growth model. This function should return the slope reliability estimate. You will apply this function to each of your 100 bootstrap samples. This will give you 100 slope reliability estimates.
+
+For each grade and subject, report the median slope reliability, and the 95% confidence interval (i.e., the slope reliability associated with the 2.5th percentile and 97.5th percentile). Show these results in a nice table, with 6 columns: grade, subject, n size, 95% CI lower bound, 95% CI upper bound, and median slope reliability estimate.
+
+```{r}
+library(rlang)
+library(tidyverse)
+library(lme4)
+
+#the first Bootstrap fucntion: 5 elements
+make_bootstrap_samples <- function(data, id_variable, time_variable, outcome_variable, n_bootstrap) {
+  
+  id_variable <- rlang::ensym(id_variable)
+  
+  student_ids <- data |>
+    distinct(!!id_variable) |>
+    pull(!!id_variable)
+  
+  n_students <- length(student_ids)
+  
+  boot_samples <- purrr::map(
+    1:n_bootstrap,
+    function(i) {
+      
+      sampled_ids <- base::sample(
+        student_ids,
+        size = n_students,
+        replace = TRUE
+      )
+      
+      sampled_table <- tibble(
+        boot_id = seq_along(sampled_ids),
+        original_id = sampled_ids
+      ) 
+      
+        boot_data <- sampled_table |>
+          dplyr::left_join(
+          data,
+          by = setNames(rlang::as_name(id_variable), "original_id"),
+          relationship = "many-to-many"
+        ) |>
+        mutate(
+          sid = boot_id
+        )
+        boot_data
+    }
+  )
+  
+  boot_samples
+}
+
+```
+
+
+```{r}
+#Slop reliability function from a data frame
+
+slope_reliability_from_data <- function(data, id_variable, time_variable, outcome_variable) {
+  
+  id_variable <- ensym(id_variable)
+  time_variable <- ensym(time_variable)
+  outcome_variable <- ensym(outcome_variable)
+  
+  id_name <- as_name(id_variable)
+  time_name <- as_name(time_variable)
+  outcome_name <- as_name(outcome_variable)
+  
+  lmer_formula <- as.formula(
+    paste0(
+      outcome_name,
+      " ~ 1 + ",
+      time_name,
+      " + (1 + ",
+      time_name,
+      " | ",
+      id_name,
+      ")"
+    )
+  )
+  
+  lmer_model <- suppressMessages(
+    suppressWarnings(
+      lme4::lmer(
+        lmer_formula,
+        REML = FALSE,
+        data = data
+      )
+    )
+  )
+
+  variance_table <- as.data.frame(lme4::VarCorr(lmer_model))
+  
+  true_slope_variance <- variance_table |>
+    filter(
+      grp == id_name,
+      var1 == time_name,
+      is.na(var2)
+    ) |>
+    dplyr::pull(vcov)
+  
+  lm_formula <- as.formula(
+    paste0(outcome_name, " ~ 1 + ", time_name)
+  )
+  
+  student_slopes <- data |>
+    group_by(!!id_variable) |>
+    nest() |>
+    mutate(
+      model = map(data, ~ stats::lm(lm_formula, data = .x)),
+      slope = map_dbl(model, ~ coef(.x)[[time_name]])
+    ) |>
+    ungroup()
+  
+  observed_slope_variance <- var(student_slopes$slope, na.rm = TRUE)
+  
+  true_slope_variance / observed_slope_variance
+}
+
+#testing with 1 group
+one_group <- benchmarks_all |>
+  dplyr::filter(grade == 3, subject == "reading")
+
+#Create only 3 bootstrap sample first
+test_boots <- make_bootstrap_samples(
+  data = one_group,
+  id_variable = sid,
+  time_variable = wave,
+  outcome_variable = score,
+  n_bootstrap = 3
+)
+
+length(test_boots)
+
+
+#Test the slope reliability function
+test_reliability <- purrr::map_dbl(
+  test_boots,
+  ~ slope_reliability_from_data(
+    data = .x,
+    id_variable = sid,
+    time_variable = wave,
+    outcome_variable = score
+  )
+)
+test_reliability
+
+```
+```{r}
+#Testing
+one_group <- benchmarks_all |>
+  dplyr::filter(grade == 3, subject == "reading")
+
+test_boots <- make_bootstrap_samples(
+  data = one_group,
+  id_variable = sid,
+  time_variable = wave,
+  outcome_variable = score,
+  n_bootstrap = 3
+)
+
+length(test_boots)
+test_boots[[1]] |>
+  dplyr::count(sid) |>
+  dplyr::count(n)
+test_reliability <- purrr::map_dbl(
+  test_boots,
+  ~ slope_reliability_from_data(
+    data = .x,
+    id_variable = sid,
+    time_variable = wave,
+    outcome_variable = score
+  )
+)
+test_reliability
+```
+
+```{r run 100 bootstraps for each grade and subject}
+bootstrap_results <- benchmarks_all |>
+  dplyr::group_by(grade, subject) |>
+  tidyr::nest() |>
+  dplyr::mutate(
+    n_size = purrr::map_int(data, ~ dplyr::n_distinct(.x$sid)),
+    boot_samples = purrr::map(
+      data,
+      ~ make_bootstrap_samples(
+        data = .x,
+        id_variable = sid,
+        time_variable = wave,
+        outcome_variable = score,
+        n_bootstrap = 100
+      )
+    ),
+    boot_reliability = purrr::map(
+      boot_samples,
+      ~ purrr::map_dbl(
+        .x,
+        function(sample_data) {
+          slope_reliability_from_data(
+            data = sample_data,
+            id_variable = sid,
+            time_variable = wave,
+            outcome_variable = score
+          )
+        }
+      )
+    )
+  )
+```
+
+```{r calculate median and 95% Confidence interval}
+ci_results <- bootstrap_results |>
+  dplyr::mutate(
+    ci_lower = purrr::map_dbl(
+      boot_reliability,
+      ~ quantile(.x, probs = 0.025, na.rm = TRUE)
+    ),
+    ci_upper = purrr::map_dbl(
+      boot_reliability,
+      ~ quantile(.x, probs = 0.975, na.rm = TRUE)
+    ),
+    median_slope_reliability = purrr::map_dbl(
+      boot_reliability,
+      ~ median(.x, na.rm = TRUE)
+    )
+  ) |>
+  dplyr::select(
+    grade,
+    subject,
+    n_size,
+    ci_lower,
+    ci_upper,
+    median_slope_reliability
+  )
+
+ci_results
+```
+
+```{r final table}
+ci_results |>
+  dplyr::mutate(
+    ci_lower = round(ci_lower, 3),
+    ci_upper = round(ci_upper, 3),
+    median_slope_reliability = round(median_slope_reliability, 3)
+  ) |>
+  knitr::kable(
+    col.names = c(
+      "Grade",
+      "Subject",
+      "N Size",
+      "95% CI Lower Bound",
+      "95% CI Upper Bound",
+      "Median Slope Reliability Estimate"
+    )
+  )
 ```
